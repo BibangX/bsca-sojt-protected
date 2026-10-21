@@ -29,3 +29,5 @@
 .map-access-message{font-size:12px;line-height:1.65;color:#fff1cf;margin:12px 0 0;overflow-wrap:anywhere}.map-access-message:empty{display:none}
 .level-access-note{font-size:12px;line-height:1.65;color:#75644f}.desk-level-access{padding:16px;background:#f8eedb;border:1px solid #dec89e;border-radius:12px;margin:18px 0}.desk-level-access h4{margin-top:0}.desk-level-access small{margin-top:10px}
 @media(max-width:600px){.pirate-map .level-lock{right:3%;top:3%;font-size:13px;padding:3px}}
+
+.desk-sidebar select{width:100%;min-height:42px;padding:10px;border:1px solid #dec89e;border-radius:8px;background:#fffdfa;color:#514533;font:inherit}.desk-sidebar>label+label{margin-top:12px}
