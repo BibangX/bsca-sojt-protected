@@ -21,3 +21,11 @@
 @media(max-width:600px){.level-map.pirate-map{min-height:430px}}
 /* Keep the taller phone map within its available column. */
 @media(max-width:600px){.level-map.pirate-map{width:100%;max-width:100%;min-width:0}.resource-main{overflow-wrap:anywhere}}
+
+/* Sequential adventure access: locks stay discoverable without covering labels. */
+.pirate-map .is-level-locked .pirate-level-icon{filter:grayscale(.7) brightness(.8) drop-shadow(0 2px 3px #30200f30)}
+.pirate-map .is-level-locked .level-name{color:#66583f}
+.pirate-map .level-lock{position:absolute;right:9%;top:12%;font-size:clamp(14px,2vw,20px);line-height:1;background:#fff4d7;border:1px solid #b49a65;border-radius:50%;padding:4px;box-shadow:0 2px 5px #38220c30;pointer-events:none}
+.map-access-message{font-size:12px;line-height:1.65;color:#fff1cf;margin:12px 0 0;overflow-wrap:anywhere}.map-access-message:empty{display:none}
+.level-access-note{font-size:12px;line-height:1.65;color:#75644f}.desk-level-access{padding:16px;background:#f8eedb;border:1px solid #dec89e;border-radius:12px;margin:18px 0}.desk-level-access h4{margin-top:0}.desk-level-access small{margin-top:10px}
+@media(max-width:600px){.pirate-map .level-lock{right:3%;top:3%;font-size:13px;padding:3px}}

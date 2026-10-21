@@ -32,6 +32,18 @@ export async function createApp({origin='http://localhost:5173',verifyToken,data
  const resources=await readFile(path.join(rootDir,'portal/resources.js'),'utf8');
  // Read the trusted static configuration without evaluating user input.
  const vm=await import('node:vm');const context={window:{}};vm.runInNewContext(resources,context);const steps=context.window.OJT_RESOURCES.steps;const stepIds=new Set(steps.map(s=>s.id));
+ async function levelAccess(userId){
+  const earlyAccess=Boolean((await db.prepare('SELECT early_access FROM level_access WHERE user_id=?').get(userId))?.early_access);
+  const completed=new Set((await db.prepare('SELECT step FROM completion WHERE user_id=? AND complete=1').all(userId)).map(r=>r.step));
+  const firstIncomplete=steps.findIndex(s=>!completed.has(s.id));
+  return {earlyAccess,unlockedSteps:steps.filter((s,i)=>earlyAccess||firstIncomplete===-1||i<=firstIncomplete).map(s=>s.id)};
+ }
+ async function requireLevel(userId,step,res){
+  const access=await levelAccess(userId);
+  if(access.unlockedSteps.includes(step))return true;
+  const requiredStep=steps.find(s=>access.unlockedSteps.includes(s.id)&&!access.unlockedSteps.includes(steps[steps.indexOf(s)+1]?.id))?.id;
+  send(res,403,{error:'Complete the previous levels with three stars, or ask the coordinator for early access.',code:'LEVEL_LOCKED',requiredStep});return false;
+ }
  async function studentProgress(userId){
   const submissions=(await db.prepare('SELECT * FROM submissions WHERE user_id=? ORDER BY id DESC').all(userId));
   const completion=(await db.prepare('SELECT step FROM completion WHERE user_id=? AND complete=1').all(userId)).map(s=>s.step);
@@ -44,7 +56,7 @@ export async function createApp({origin='http://localhost:5173',verifyToken,data
    if(openedSet.has(step))return {step,stars:1,status:'opened'};
    return {step,stars:0,status:'not-started'};
   });
-  return {submissions,completion,openedSteps,progress};
+  return {submissions,completion,openedSteps,progress,...await levelAccess(userId)};
  }
 
  const google=new OAuth2Client(CLIENT);const verify=verifyToken|| (async(token,nonce)=>{const ticket=await google.verifyIdToken({idToken:token,audience:CLIENT});const payload=ticket.getPayload();if(payload.nonce!==nonce)throw Error('Invalid sign-in challenge');return payload;});
@@ -91,6 +103,7 @@ export async function createApp({origin='http://localhost:5173',verifyToken,data
   if(pathname==='/api/steps/open'&&req.method==='POST'){
    if(coordinator)return send(res,403,{error:'Only students can record their own opened steps.'});
    const b=await body(req);if(!stepIds.has(b.step))return send(res,400,{error:'Choose a valid map step.'});
+   if(!await requireLevel(session.user_id,b.step,res))return;
    (await db.prepare('INSERT INTO opened_steps(user_id,step,opened_at) VALUES(?,?,?) ON CONFLICT(user_id,step) DO NOTHING').run(session.user_id,b.step,new Date().toISOString()));
    return send(res,200,{ok:true,progress:(await studentProgress(session.user_id)).progress.find(s=>s.step===b.step)});
   }
@@ -133,15 +146,27 @@ export async function createApp({origin='http://localhost:5173',verifyToken,data
   if(pathname==='/api/submissions'&&req.method==='POST'){
    if(coordinator||!session.student_number)return send(res,403,{error:'Complete student registration first.'});
    const b=await body(req);if(!stepIds.has(b.step)||!driveFile(b.url)||typeof b.label!=='string'||b.label.trim().length<2||b.label.length>120||typeof b.filename!=='string'||b.filename.length>180||!b.filename.startsWith(session.student_number+'_')||!/^[-\w. ()]+\.pdf$/i.test(b.filename))return send(res,400,{error:'Choose a step, enter a document name and direct Google Drive file link, and use StudentNumber_LastName_DocumentName.pdf.'});
+   if(!await requireLevel(session.user_id,b.step,res))return;
    const duplicate=(await db.prepare('SELECT id FROM submissions WHERE user_id=? AND step=? AND url=? AND status IN (\'submitted\',\'approved\')').get(session.user_id,b.step,b.url));if(duplicate)return send(res,409,{error:'This file is already awaiting review or approved.'});
    (await db.prepare('INSERT INTO submissions(user_id,step,label,url,filename,created) VALUES(?,?,?,?,?,?)').run(session.user_id,b.step,b.label.trim(),b.url,b.filename,new Date().toISOString()));(await db.prepare('INSERT INTO completion VALUES(?,?,0) ON CONFLICT(user_id,step) DO UPDATE SET complete=0').run(session.user_id,b.step));return send(res,201,{ok:true});
   }
-  if(pathname==='/api/review'&&req.method==='GET'){if(!coordinator)return send(res,403,{error:'Coordinator only'});return send(res,200,{students:(await db.prepare('SELECT id,email,name,student_number FROM users WHERE email<>? ORDER BY name').all(COORDINATOR)),submissions:(await db.prepare('SELECT s.*,u.name,u.student_number FROM submissions s JOIN users u ON u.id=s.user_id ORDER BY s.id DESC').all()),completion:(await db.prepare('SELECT * FROM completion WHERE complete=1').all()),openedSteps:(await db.prepare('SELECT user_id,step FROM opened_steps ORDER BY user_id,step').all())});}
+  if(pathname==='/api/review'&&req.method==='GET'){if(!coordinator)return send(res,403,{error:'Coordinator only'});return send(res,200,{students:(await db.prepare('SELECT u.id,u.email,u.name,u.student_number,COALESCE(a.early_access,FALSE) AS "earlyAccess" FROM users u LEFT JOIN level_access a ON a.user_id=u.id WHERE u.email<>? ORDER BY u.name').all(COORDINATOR)),submissions:(await db.prepare('SELECT s.*,u.name,u.student_number FROM submissions s JOIN users u ON u.id=s.user_id ORDER BY s.id DESC').all()),completion:(await db.prepare('SELECT * FROM completion WHERE complete=1').all()),openedSteps:(await db.prepare('SELECT user_id,step FROM opened_steps ORDER BY user_id,step').all())});}
   if(pathname==='/api/review'&&req.method==='POST'){
    if(!coordinator)return send(res,403,{error:'Coordinator only'});const b=await body(req);
    if(!Number.isSafeInteger(b.id)||!['approved','revision','superseded'].includes(b.status)||typeof b.note!=='string'||b.note.length>1000||(b.status==='revision'&&!b.note.trim()))return send(res,400,{error:'Choose a review status; explain requested revisions.'});
    const item=(await db.prepare('SELECT * FROM submissions WHERE id=?').get(b.id));if(!item)return send(res,404,{error:'Submission not found'});
    (await db.prepare('UPDATE submissions SET status=?,note=? WHERE id=?').run(b.status,b.note,b.id));(await db.prepare('INSERT INTO completion VALUES(?,?,0) ON CONFLICT(user_id,step) DO UPDATE SET complete=0').run(item.user_id,item.step));(await db.prepare('INSERT INTO audit(actor,submission_id,action,created) VALUES(?,?,?,?)').run(session.user_id,b.id,b.status,new Date().toISOString()));return send(res,200,{ok:true});
+  }
+  if(pathname==='/api/level-access'&&req.method==='POST'){
+   if(!coordinator)return send(res,403,{error:'Coordinator only'});
+   const b=await body(req);
+   if(typeof b.userId!=='string'||typeof b.earlyAccess!=='boolean')return send(res,400,{error:'Choose a student and a valid early-access setting.'});
+   const student=await db.prepare('SELECT email FROM users WHERE id=?').get(b.userId);
+   if(!student||student.email===COORDINATOR)return send(res,404,{error:'Student not found'});
+   const now=new Date().toISOString();
+   await db.prepare('INSERT INTO level_access(user_id,early_access,updated_by,updated_at) VALUES(?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET early_access=excluded.early_access,updated_by=excluded.updated_by,updated_at=excluded.updated_at').run(b.userId,b.earlyAccess,session.user_id,now);
+   await db.prepare('INSERT INTO audit(actor,action,created) VALUES(?,?,?)').run(session.user_id,JSON.stringify({action:'level_access',user:b.userId,earlyAccess:b.earlyAccess}),now);
+   return send(res,200,{ok:true,...await levelAccess(b.userId)});
   }
   if(pathname==='/api/complete'&&req.method==='POST'){
    if(!coordinator)return send(res,403,{error:'Coordinator only'});const b=await body(req);if(!stepIds.has(b.step)||typeof b.userId!=='string'||typeof b.complete!=='boolean')return send(res,400,{error:'Invalid step'});
@@ -152,7 +177,14 @@ export async function createApp({origin='http://localhost:5173',verifyToken,data
   if(pathname.startsWith('/api/'))return send(res,404,{error:'Not found'});
   const publicFiles=new Map([['/login','login.html'],['/login.js','login.js'],['/account.css','account.css']]);
   let file;if(publicFiles.has(pathname))file=path.join(rootDir,publicFiles.get(pathname));
-  else {if(!session){res.writeHead(302,{Location:'/login'});return res.end();}const rel=decodeURIComponent(pathname==='/'?'/index.html':pathname);file=path.resolve(rootDir,'portal','.'+rel);if(!file.startsWith(path.join(rootDir,'portal')+path.sep))return send(res,404,{error:'Not found'});}
+  else {if(!session){res.writeHead(302,{Location:'/login'});return res.end();}const rel=decodeURIComponent(pathname==='/'?'/index.html':pathname);file=path.resolve(rootDir,'portal','.'+rel);if(!file.startsWith(path.join(rootDir,'portal')+path.sep))return send(res,404,{error:'Not found'});
+   if(!coordinator&&file.startsWith(path.join(rootDir,'portal/templates')+path.sep)){
+    const associated=steps.filter(s=>(s.templates||[]).some(t=>path.resolve(rootDir,'portal',t.url)===file));
+    if(!associated.length)return send(res,404,{error:'Not found'});
+    const access=await levelAccess(session.user_id);
+    if(!associated.some(s=>access.unlockedSteps.includes(s.id))){await requireLevel(session.user_id,associated[0].id,res);return;}
+   }
+  }
   const ext=path.extname(file);const types={'.html':'text/html; charset=utf-8','.css':'text/css','.js':'text/javascript','.png':'image/png','.svg':'image/svg+xml','.docx':'application/vnd.openxmlformats-officedocument.wordprocessingml.document'};
   if(!types[ext])return send(res,404,{error:'Not found'});let content;try{content=await readFile(file);}catch{return send(res,404,{error:'Not found'});}res.writeHead(200,{'Content-Type':types[ext]});res.end(content);
  }catch{res.failed=true;send(res,400,{error:'Could not complete this request. Please retry.'});}};

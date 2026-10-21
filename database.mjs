@@ -12,6 +12,7 @@ export function connectionOptions(connectionString){
 }
 export function createDatabase({pool}={}){
  pool ||= new pg.Pool(connectionOptions(process.env.DATABASE_URL));
+ let schemaReady=false;
  const query=async(sql,args)=>{
   const ctx=storage.getStore();if(!ctx)throw Error('Database request context required');
   let n=0;sql=sql.replace(/\?/g,()=>'$'+(++n));
@@ -22,9 +23,16 @@ export function createDatabase({pool}={}){
   rollbackOnly(){storage.getStore().failed=true;},
   async request(fn,write=false){const client=await pool.connect();const ctx={client,failed:false};try{return await storage.run(ctx,async()=>{
    await client.query('BEGIN');await client.query('SET LOCAL search_path TO portal,pg_catalog');
+   // Additive upgrade for existing deployments; the same write lock prevents cold-start races.
+   if(!schemaReady){
+    await client.query('SELECT pg_advisory_xact_lock(20261021)');
+    await client.query('CREATE TABLE IF NOT EXISTS portal.level_access(user_id TEXT PRIMARY KEY REFERENCES portal.users(id),early_access BOOLEAN NOT NULL DEFAULT FALSE,updated_by TEXT NOT NULL,updated_at TEXT NOT NULL)');
+    await client.query('ALTER TABLE portal.level_access ENABLE ROW LEVEL SECURITY');
+    await client.query('REVOKE ALL ON portal.level_access FROM PUBLIC,anon,authenticated');
+   }
    // Serialize short writes across function instances, including review/completion races.
    if(write)await client.query('SELECT pg_advisory_xact_lock(20261021)');
-   const result=await fn();await client.query(ctx.failed?'ROLLBACK':'COMMIT');return result;
+   const result=await fn();await client.query(ctx.failed?'ROLLBACK':'COMMIT');if(!ctx.failed)schemaReady=true;return result;
   });}catch(e){await client.query('ROLLBACK').catch(()=>{});throw e;}finally{client.release();}},
   close(){return pool.end();}
  };

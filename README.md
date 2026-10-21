@@ -52,3 +52,8 @@ Keep Netlify and Supabase on Free plans and use the supplied netlify.app address
 
 ## Module compatibility update
 Delete the old `netlify/functions/portal.mjs` from GitHub. This version uses `netlify/functions/portal.js` with its directory-level `package.json` and explicit dynamic import. Replace `netlify.toml` as well. Keeping both entry files can cause duplicate function names.
+
+## Sequential levels and early access
+Students begin with Level 1. Later levels unlock only when all earlier levels have three stars (coordinator-confirmed completion). Opening a level or submitting a file alone does not unlock the next one. Existing records are preserved.
+
+For a student's early-access request, select their record in the coordinator desk and enable early access. This lifts the level restriction for that student, allowing them to open later levels and download their templates. It does not award stars or approve documents. The coordinator can revoke the exception at any time. Changes are saved per student and recorded in the audit log. Students contact the coordinator to request permission; the portal does not send a request automatically.

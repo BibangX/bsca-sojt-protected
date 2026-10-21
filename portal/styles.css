@@ -133,3 +133,31 @@ h1,h2,h3{font-family:Georgia,'Times New Roman',serif}
 .crew-registration h2{margin:0;font-size:29px;line-height:1.2}.crew-copy>p{margin:9px 0;max-width:690px;line-height:1.6}.crew-copy .briefing-eyebrow{font-size:10px;letter-spacing:.15em;margin-top:0;color:#8d6c38}.crew-subtitle{font-size:13px;color:#90754f;font-weight:600}.crew-registration .resource-action{margin-top:8px}.crew-copy .crew-note{font-size:12px;color:#7c6a54;margin-top:12px}
 .level-world{background:#315957;border-color:#70958a}.map-caption{color:#fff1cf}.map-caption button{border-color:#a8b5a080;background:#fff8e312;color:#fff1cf}.map-footnote{color:#f4ead2}
 @media(max-width:600px){.crew-registration{grid-template-columns:1fr;gap:10px;padding:22px}.crew-mark{justify-content:flex-start}.crew-mark .pirate-level-icon{width:68px;height:68px}.crew-registration h2{font-size:25px}.resource-jumps{gap:7px}.resource-jumps a{font-size:12px;padding:7px 11px}}
+
+/* Size landmarks from the map itself, keeping clear space between columns. */
+.level-map.pirate-map{container-type:inline-size}
+.pirate-map .level-stop{width:24%;max-width:220px;min-width:0}
+.pirate-map .pirate-level-icon{width:clamp(48px,10cqw,100px);height:clamp(48px,10cqw,100px)}
+.pirate-map .level-name,.pirate-map .level-stop:hover .level-name{text-align:center;min-height:clamp(48px,7cqw,60px);padding:12px clamp(12px,3cqw,30px);font-size:clamp(10px,1.5cqw,14px);overflow-wrap:normal;word-break:normal}
+.resource-intro>*,.pirate-guide-copy,.crew-copy{min-width:0}
+@media(max-width:760px){
+ .resource-header{flex-wrap:wrap}
+ .resource-brand,.department-brand{min-width:0}
+ .resource-step-actions,.resource-step-body{min-width:0}
+ .level-dialog{max-height:90dvh;overflow:auto}
+ .resource-action{max-width:100%;white-space:normal;overflow-wrap:anywhere}
+}
+@media(max-width:600px){
+ .level-world{padding:8px}
+ .pirate-map .level-stop{width:25%;transform:translate(-50%,-42%)}
+ .pirate-map .level-name,.pirate-map .level-stop:hover .level-name{min-height:54px;padding:9px 10px;font-size:10px;line-height:1.2;margin-top:0}
+ .pirate-map .pirate-level-icon{width:clamp(44px,16cqw,64px);height:clamp(44px,16cqw,64px)}
+ .map-caption{gap:8px;line-height:1.4}
+ .map-caption span:nth-child(2){max-width:none}
+ .map-caption button{min-height:36px}
+ .pirate-guide-copy{padding:20px 16px}
+}
+@media(max-width:360px){
+ .resource-main{padding-left:12px;padding-right:12px}
+ .pirate-map .level-name,.pirate-map .level-stop:hover .level-name{padding-left:7px;padding-right:7px}
+}
