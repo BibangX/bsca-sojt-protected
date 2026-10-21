@@ -13,6 +13,20 @@ const random=()=>randomBytes(32).toString('base64url');
 const schoolEmail=value=>typeof value==='string'&&value.length<=254&&/^[a-z0-9.!#$%&'*+\/=?^_`{|}~-]+@g\.msuiit\.edu\.ph$/i.test(value.trim())?value.trim().toLowerCase():null;
 export function validIdentity(p){return p&&p.email_verified===true&&p.hd==='g.msuiit.edu.ph'&&typeof p.sub==='string'&&p.sub.length>0&&typeof p.email==='string'&&p.email.toLowerCase().endsWith('@g.msuiit.edu.ph');}
 export function driveFile(url){try{const u=new URL(url);return u.protocol==='https:'&&!u.username&&!u.password&&u.hostname==='drive.google.com'&&(/^\/file\/d\/[\w-]+(?:\/|$)/.test(u.pathname)||(u.pathname==='/open'&&/^[\w-]+$/.test(u.searchParams.get('id')||'')));}catch{return false;}}
+export function diagnosticCode(error){
+ const codes={
+  '28P01':'DB_PASSWORD','28000':'DB_USER',
+  'ENOTFOUND':'DB_HOST','EAI_AGAIN':'DB_DNS',
+  'ECONNREFUSED':'DB_REFUSED','ETIMEDOUT':'DB_TIMEOUT','ECONNRESET':'DB_RESET',
+  'SELF_SIGNED_CERT_IN_CHAIN':'DB_CERTIFICATE','DEPTH_ZERO_SELF_SIGNED_CERT':'DB_CERTIFICATE',
+  'UNABLE_TO_VERIFY_LEAF_SIGNATURE':'DB_CERTIFICATE','UNABLE_TO_GET_ISSUER_CERT_LOCALLY':'DB_CERTIFICATE',
+  'CERT_HAS_EXPIRED':'DB_CERTIFICATE','ERR_TLS_CERT_ALTNAME_INVALID':'DB_CERTIFICATE',
+  'ERR_INVALID_URL':'DB_URL','3D000':'DB_NAME','42P01':'DB_TABLES','42501':'DB_PERMISSIONS','53300':'DB_CONNECTION_LIMIT'
+ };
+ if(codes[error?.code])return codes[error.code];
+ if(/timeout|timed out/i.test(error?.message||''))return 'DB_TIMEOUT';
+ return 'BACKEND_UNKNOWN';
+}
 export async function createApp({origin='http://localhost:5173',verifyToken,database,rootDir=ROOT,trustProxy=false}={}){
  const db=database||createDatabase();
  const resources=await readFile(path.join(rootDir,'portal/resources.js'),'utf8');
@@ -147,7 +161,7 @@ export async function createApp({origin='http://localhost:5173',verifyToken,data
   req.clientIp=trustProxy ? (req.headers['x-nf-client-connection-ip']||'unknown') : req.socket.remoteAddress;
   try{await db.request(async()=>{await handle(req,buffered);if(buffered.failed)db.rollbackOnly();},req.method==='POST'||req.url.startsWith('/api/auth-config'));
    res.writeHead(buffered.status,buffered.headers);res.end(buffered.data);
-  }catch{res.writeHead(503,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({error:'Portal temporarily unavailable. Please retry shortly.'}));}
+  }catch(error){const reference=diagnosticCode(error);console.error('Portal backend diagnostic:',reference);res.writeHead(503,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({error:'Portal temporarily unavailable. Please retry shortly.',reference}));}
  });
  return {app,db};
 }
