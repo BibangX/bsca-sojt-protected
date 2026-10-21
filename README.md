@@ -49,3 +49,6 @@ Google Forms/Sheets submissions are separate and do not automatically update por
 
 ## No-cost operation
 Keep Netlify and Supabase on Free plans and use the supplied netlify.app address. Documents remain in Google Drive. Free plans have usage limits and may pause service; they are not unlimited hosting. Monitor usage and export important records. No paid add-ons, upgrades or automatic top-ups are needed by this code.
+
+## Module compatibility update
+Delete the old `netlify/functions/portal.mjs` from GitHub. This version uses `netlify/functions/portal.js` with its directory-level `package.json` and explicit dynamic import. Replace `netlify.toml` as well. Keeping both entry files can cause duplicate function names.

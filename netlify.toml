@@ -6,7 +6,8 @@
 [functions]
   directory = "netlify/functions"
   node_bundler = "esbuild"
-  included_files = ["portal/**", "login.html", "login.js", "account.css"]
+  external_node_modules = ["pg", "google-auth-library", "serverless-http"]
+  included_files = ["server.mjs", "database.mjs", "portal/**", "login.html", "login.js", "account.css"]
 [[redirects]]
   from = "/*"
   to = "/.netlify/functions/portal"

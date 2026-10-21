@@ -103,3 +103,10 @@ test('separate function instances share one-use sign-in challenges and sessions'
   assert.equal((await b(event('/templates/Intent-Declaration.docx'),context)).statusCode,302);
  }finally{await db.close();}
 });
+
+test('Netlify CommonJS entry loads and fails closed before secrets are configured',async()=>{
+ const {createRequire}=await import('node:module');const require=createRequire(import.meta.url);
+ const entry=require('./netlify/functions/portal.js');assert.equal(typeof entry.handler,'function');
+ const previous=process.env.APP_ORIGIN;delete process.env.APP_ORIGIN;
+ try{assert.equal((await entry.handler({},{})).statusCode,503);}finally{if(previous!==undefined)process.env.APP_ORIGIN=previous;}
+});
