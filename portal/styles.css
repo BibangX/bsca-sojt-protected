@@ -161,3 +161,9 @@ h1,h2,h3{font-family:Georgia,'Times New Roman',serif}
  .resource-main{padding-left:12px;padding-right:12px}
  .pirate-map .level-name,.pirate-map .level-stop:hover .level-name{padding-left:7px;padding-right:7px}
 }
+
+/* Keep complete artwork inside each landmark's image viewport. */
+.pirate-map .pirate-level-icon{background-image:url('./assets/pirate-level-icons-spaced.png')}
+.pirate-map .pirate-icon-1{background-image:url('./assets/pirate-company-icon.png');background-size:contain;background-position:center}
+.crew-mark .pirate-level-icon{background-image:url('./assets/pirate-level-icons-spaced.png')}
+.pirate-map .level-name,.pirate-map .level-stop:hover .level-name{background-image:url('./assets/pirate-scroll-straight.png')}
