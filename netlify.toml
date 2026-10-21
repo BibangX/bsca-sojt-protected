@@ -1,0 +1,14 @@
+[build]
+  command = "npm run build"
+  publish = "public"
+[build.environment]
+  NODE_VERSION = "22"
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+  included_files = ["portal/**", "login.html", "login.js", "account.css"]
+[[redirects]]
+  from = "/*"
+  to = "/.netlify/functions/portal"
+  status = 200
+  force = true

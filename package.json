@@ -1,1 +1,22 @@
-{"name":"bsca-protected-portal","version":"1.0.0","private":true,"type":"module","engines":{"node":">=22.13"},"scripts":{"dev":"node --env-file-if-exists=.env server.mjs","start":"node --env-file-if-exists=.env server.mjs","test":"node --test test.mjs"},"dependencies":{"google-auth-library":"^10.0.0"}}
+{
+  "name": "bsca-sojt-netlify",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env server.mjs",
+    "test": "node --test test.mjs",
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "google-auth-library": "^10.0.0",
+    "pg": "^8.16.0",
+    "serverless-http": "^3.2.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.10"
+  }
+}

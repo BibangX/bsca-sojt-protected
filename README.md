@@ -1,71 +1,51 @@
-# BSCA SOJT protected portal — first working version
+# BSCA SOJT Portal — Netlify + Supabase
 
-This is a separate Node.js version of the pirate-map portal. It preserves the soft map artwork, cat captain, official logos, materials and external Google Forms links. It adds server-verified school Google sign-in, student accounts, a shared SQLite database, personal map status, direct Drive file submissions and a coordinator review desk.
+Protected deployment edition. Keeps the pirate map, templates, Google school sign-in, coordinator email allowlist, Drive file submissions, reviews, and persistent stars.
 
-## Run in Windows / VS Code
+## GitHub upload
+Upload the CONTENTS of this folder to the root of your dedicated private repository. Replace matching files from the previous local edition. Never upload `.env`, database credentials, `node_modules`, or a local `data` directory. GitHub Pages cannot run this edition.
 
-1. Install Node.js 22.13 or newer (Node 24 recommended for this package).
-2. Extract this folder and open it in VS Code.
-3. Run `npm.cmd ci`.
-4. Run `npm.cmd run dev`.
-5. Open http://localhost:5173.
+## Supabase
+Run `schema.sql` in the project's SQL Editor. If you already ran the supplied setup script, the eight matching tables exist; the CREATE statements are safe to repeat. Tables use the private `portal` schema and are not exposed to anonymous or signed-in Data API users. The backend connects directly with the database credential and performs its own role and ownership checks. This edition does not use Supabase Auth.
 
-The existing public Google Client ID is already configured for local testing. Use the original Google OAuth client that has http://localhost:5173 as an authorized JavaScript origin. This flow needs no OAuth client secret. School account policy and actual Google login still need browser testing.
+Copy Connect > Direct > Transaction pooler > shared pooler URI (host ending in `.pooler.supabase.com`, port 6543). Replace `[YOUR-PASSWORD]` with your database password, URL-encoding special characters. Enter the result only as Netlify's secret `DATABASE_URL`; do not commit it. Do not purchase the IPv4 add-on.
 
-Optional configuration: copy .env.example to .env, then edit values. Do not commit .env or the data folder.
+## Netlify configuration
+Import the dedicated repository on the Free plan. Settings are supplied in `netlify.toml`:
+- Build command: `npm run build`
+- Publish directory: `public`
+- Functions directory: `netlify/functions`
+- Node: 22
 
-## Account and progress rules
+Only `robots.txt` is published statically. All portal pages, images and template downloads pass through the function's session check. Do not change the publish directory to the repository root or `portal`.
 
-- Only server-verified Google accounts with verified email and hosted domain g.msuiit.edu.ph are accepted. The account ID is Google's stable subject, not an email supplied by the browser.
-- New students confirm their name and unique student number; Google handles their password and account security.
-- New map steps are Not started. Submitting a direct Drive PDF file link creates Awaiting review. The coordinator can request revisions, approve each file or mark replaced files as superseded.
-- Only excelvan.jondonero@g.msuiit.edu.ph can access the review desk. Roles are assigned on the server; there is no role picker.
-- File approval and step completion are separate. After checking all required documents, signatures and offline requirements, the coordinator explicitly marks the step complete. All current files must first be approved. A new submission reopens the step.
-- Students see their own submissions only. Their personal progress appears on subsequent sign-ins and across devices using the same running server/database.
-- Submission validates link format and the typed filename. It cannot inspect Drive contents, permissions or actual filenames. These remain part of coordinator review. PDF filenames start with the student's number.
-- Keep old Google Forms for existing workflows. Opening or submitting those forms does not automatically update this database. This version's progress comes from submissions made inside the protected portal; Google Forms/Sheet synchronization is not configured.
+Set these environment variables in Netlify, available to Functions:
+- `DATABASE_URL`: full shared transaction pooler URI including password (secret)
+- `APP_ORIGIN`: exact final HTTPS Netlify site URL, no trailing slash
+- `GOOGLE_CLIENT_ID`: `559253472044-ek8vsrlh19ik12iekci4mob8aptbg181.apps.googleusercontent.com`
 
-## Hosting and privacy
+The site returns setup-incomplete until the first two variables are present. If a build assigns the site URL first, set APP_ORIGIN to that address and redeploy. Do not put credentials into build commands or the repository.
 
-This package must run on a Node server with a persistent writable data directory and HTTPS. GitHub Pages cannot run it. GitHub may store the code, but its static Pages deployment must not be used to host the portal folder.
+In the existing Google Cloud OAuth Web client, add the same HTTPS APP_ORIGIN under Authorized JavaScript origins. Keep existing localhost entries for local testing. No client secret is needed for this Google ID-token sign-in flow.
 
-For online hosting set APP_ORIGIN to the exact HTTPS site URL and PORT to the host's provided port. Add that HTTPS origin to the Google OAuth client's authorized JavaScript origins. Back up data/portal.sqlite using a SQLite-aware backup procedure; keep the data directory across deploys. A single server instance is supported. Do not run multiple independent copies with separate databases and expect synchronization.
+Only verified school Workspace identities with an active coordinator-approved email may enter. Coordinator: excelvan.jondonero@g.msuiit.edu.ph. Students must be added from the coordinator desk before first sign-in.
 
-Static portal routes, map images and templates in this server require a valid session. Public login-page code contains no portal documents. Once the protected host is verified, disable the previous public GitHub Pages/Workers versions and make the source repo private if their templates are intended to be private. Existing public copies are not protected by this new server. External Google Forms and Drive files have their own sharing settings.
+## Local test
+Install Node 22 or later, copy `.env.example` to `.env`, fill in the database URI privately, then:
 
-Sessions expire after eight hours. Production HTTPS uses Secure, HttpOnly, SameSite cookies. State changes require same-origin requests and session CSRF tokens. Google verification challenges are single-use. Public authentication endpoints are rate limited. No production test-login route is included.
+```
+npm ci
+npm run dev
+```
 
-## Validation and limits
+Local testing uses the configured Supabase database; use a separate test project for disposable data. Never set PG_TEST in production.
 
-Run `npm.cmd test`. Automated tests cover domain rejection, unauthenticated routes/templates, direct-file link validation, registration, duplicate student numbers, CSRF, record isolation, coordinator-only approval/completion, reopening completed steps, logout and restart persistence. Tests inject identities directly into an in-process app; there is no HTTP bypass route.
+## Verification
+`npm test` uses embedded PostgreSQL (PGlite), mocked Google identity verification, and the serverless HTTP adapter. It checks privacy, roles, CSRF, registration, allowlisting/revocation, direct Drive URLs, review/completion, stars and one-use authentication across application instances. It does not verify external connectivity, actual Google accounts, or Netlify's deployed routing. No production authentication bypass is included.
 
-Actual Google login, school policy, browser presentation and online hosting are not yet verified. This is the first working protected version for local validation, not an already-live deployment. The previous private preview remains the design preview; it does not run this backend.
+After deployment, test coordinator login, allow one test student, student registration, map opening, file submission, coordinator approval/completion, reload and sign-in from a second browser. Test that an unlisted school account cannot enter and logged-out template URLs redirect to login. Stars: 0 unopened, 1 opened, 2 submitted or revision/awaiting final completion, 3 explicitly completed by coordinator.
 
-## Coordinator workspace update
+Google Forms/Sheets submissions are separate and do not automatically update portal stars. No local SQLite records are migrated by this package.
 
-Coordinator tools open automatically after sign-in. The desk shows all student accounts (including incomplete registrations), a searchable clickable student list, queue statistics, selected-student progress out of nine steps, the matching map badges, document/status filters, file approval/revision controls, completion/reopen controls, and CSV export of the submission log. No student data is fabricated when the queue is empty. CSV includes portal submissions only, not unsynchronized Google Forms responses.
-
-Updating an existing local installation: stop the server; replace server.mjs, portal/account.js, account.css and portal/account.css, and add portal/coordinator.js. Keep your data folder unchanged. Start again with npm.cmd run dev and refresh the browser. Dependencies are unchanged.
-
-## Approved student emails
-
-There is one Google sign-in button. The server recognizes excelvan.jondonero@g.msuiit.edu.ph as coordinator automatically. No coordinator code or shared password is used. Students must have a verified school Google account AND an active entry in the coordinator-managed allowlist.
-
-After signing in as coordinator, use Approved student emails to add one school email, paste a list, or import an email-column CSV. Review the list before saving. Adding emails grants access but does not create fake student profiles; students confirm their details after signing in. Revoking access invalidates existing sessions and blocks subsequent sign-ins. Student records are retained, and re-adding the email allows the student to sign in again.
-
-Existing student accounts are not automatically approved by this update. Add their school emails before they sign in again. The coordinator account remains accessible so you can manage the list. Keep the data folder when updating.
-
-## Personal map stars
-
-Map status chips are replaced by one three-star indicator under each level icon:
-
-- 0 filled stars: level has not been opened and has no active submission.
-- 1 filled star: student opened the level; submission is still pending.
-- 2 filled stars: a file was submitted; review, corrections or explicit step completion is still pending. The step popup shows the precise file status and feedback.
-- 3 filled stars: coordinator explicitly confirmed the full step complete.
-
-Opening a level via its icon, Previous/Next, or a direct step link records the opening against the signed-in student's account. Reopening cannot award additional stars or approve a requirement. Openings persist in the existing database and do not overwrite saved submissions. Coordinator browsing does not award a student visit. Replaced/superseded files do not earn submission stars. A new submission reopens an already completed step, so it displays two stars until the coordinator finishes reviewing again.
-
-The 3/9 completion count still counts completed steps only, not stars or visits. Google Forms responses remain separate until a verified integration is added.
-
-For this update, stop the server and replace server.mjs plus the portal folder and account.css from the ZIP, keeping data unchanged. Restart and refresh the browser. The database adds the opened-step table automatically.
+## No-cost operation
+Keep Netlify and Supabase on Free plans and use the supplied netlify.app address. Documents remain in Google Drive. Free plans have usage limits and may pause service; they are not unlimited hosting. Monitor usage and export important records. No paid add-ons, upgrades or automatic top-ups are needed by this code.

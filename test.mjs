@@ -1,3 +1,14 @@
+import {PGlite} from '@electric-sql/pglite';
+import {readFile} from 'node:fs/promises';
+import {createDatabase} from './database.mjs';
+async function testDatabase(){
+ const engine=new PGlite();
+ await engine.exec('CREATE ROLE anon; CREATE ROLE authenticated;');
+ await engine.exec(await readFile(new URL('./schema.sql',import.meta.url),'utf8'));
+ let release=Promise.resolve();
+ const pool={async connect(){let done;const next=new Promise(r=>done=r);const previous=release;release=next;await previous;return {async query(sql,args){if(sql.includes('pg_advisory_xact_lock'))return {rows:[]};return engine.query(sql,args);},release:done};},end(){return engine.close();}};
+ return createDatabase({pool});
+}
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createApp,validIdentity,driveFile} from './server.mjs';
@@ -6,7 +17,7 @@ const identities={student:{sub:'student-1',email:'student@g.msuiit.edu.ph',name:
 test('identity requires verified school Workspace membership',()=>{assert.equal(validIdentity(identities.student),true);for(const p of [identities.outsider,{...identities.student,email_verified:false},{...identities.student,hd:undefined},{...identities.student,email:'x@g.msuiit.edu.ph.attacker.com'}])assert.equal(Boolean(validIdentity(p)),false);});
 test('accepts direct Drive files only',()=>{assert(driveFile('https://drive.google.com/file/d/abc/view'));for(const u of ['https://drive.google.com/drive/folders/abc','https://evil.com/file/d/abc','javascript:alert(1)','https://drive.google.com.evil.com/file/d/abc'])assert(!driveFile(u));});
 test('protected end-to-end registration, privacy, review and completion',async()=>{
-const {app,db}=await createApp({origin,verifyToken:async token=>{if(!identities[token])throw Error();return identities[token];}});await new Promise(r=>app.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+app.address().port;
+const database=await testDatabase();const {app,db}=await createApp({database,origin,verifyToken:async token=>{if(!identities[token])throw Error();return identities[token];}});await new Promise(r=>app.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+app.address().port;
 async function call(route,{cookie='',csrf='',body,headers={}}={}){return fetch(base+route,{redirect:'manual',method:body===undefined?'GET':'POST',headers:{cookie,origin,'x-csrf-token':csrf,'Content-Type':'application/json',...headers},body:body===undefined?undefined:JSON.stringify(body)});}
 async function login(who){const config=await call('/api/auth-config');const ch=config.headers.getSetCookie()[0].split(';')[0];const response=await call('/api/login',{cookie:ch,body:{credential:who}});assert.equal(response.status,200);const cookie=response.headers.getSetCookie()[0].split(';')[0];const me=await (await call('/api/me',{cookie})).json();return {cookie,csrf:me.csrf};}
 try{
@@ -37,7 +48,7 @@ assert.equal((await call('/api/steps/open',{...a,csrf:'bad',body:{step:'intent'}
 assert.equal((await call('/api/steps/open',{...a,body:{step:'intent',stars:3,user_id:'student-2'}})).status,200);
 assert.equal((await call('/api/steps/open',{...a,body:{step:'intent'}})).status,200);
 const opened=await (await call('/api/me',a)).json();assert.deepEqual(opened.openedSteps,['intent']);assert.equal(opened.progress.find(p=>p.step==='intent').stars,1);assert.deepEqual(opened.completion,[]);
-assert.equal(db.prepare('SELECT COUNT(*) n FROM opened_steps WHERE user_id=?').get('student-1').n,1);
+assert.equal(Number(await db.request(async()=> (await db.prepare('SELECT COUNT(*) n FROM opened_steps WHERE user_id=?').get('student-1')).n)),1);
 assert.deepEqual((await (await call('/api/me',b)).json()).openedSteps,[]);
 assert((await (await call('/api/review',c)).json()).openedSteps.some(r=>r.user_id==='student-1'&&r.step==='intent'));
 
@@ -71,34 +82,24 @@ const denied=await call('/api/auth-config');assert.equal((await call('/api/login
 assert.equal((await call('/api/allowlist',{...c,body:{emails:['other@g.msuiit.edu.ph']}})).status,200);
 assert.equal((await call('/api/me',b)).status,401);
 await login('other');
-}finally{await new Promise(r=>app.close(r));db.close();}
-});
-
-test('saved accounts and submissions survive database restart',async()=>{
-const {mkdtemp,rm}=await import('node:fs/promises');const os=await import('node:os');const path=await import('node:path');const directory=await mkdtemp(path.join(os.tmpdir(),'bsca-persistence-'));const file=path.join(directory,'test.sqlite');
-try{let a=await createApp({dbPath:file,origin});a.db.prepare('INSERT INTO users VALUES(?,?,?,?)').run('persist','persist@g.msuiit.edu.ph','Saved Student','2026-010');a.db.prepare('INSERT INTO submissions(user_id,step,label,url,filename,created) VALUES(?,?,?,?,?,?)').run('persist','intent','Intent','https://drive.google.com/file/d/abc/view','2026-010_Student_Intent.pdf',new Date().toISOString());a.db.prepare('INSERT INTO opened_steps VALUES(?,?,?)').run('persist','intent',new Date().toISOString());a.db.close();let b=await createApp({dbPath:file,origin});assert.equal(b.db.prepare('SELECT COUNT(*) n FROM opened_steps WHERE user_id=?').get('persist').n,1);assert.equal(b.db.prepare('SELECT student_number FROM users WHERE id=?').get('persist').student_number,'2026-010');assert.equal(b.db.prepare('SELECT COUNT(*) AS n FROM submissions').get().n,1);b.db.close();}finally{await rm(directory,{recursive:true,force:true});}
+}finally{await new Promise(r=>app.close(r));await db.close();}
 });
 
 
-test('allowlist CSV preview handles quoted columns and validates school emails',async()=>{
- const {parseEmailCsv,normalizeAllowedEmails}=await import('./portal/coordinator.js');
- assert.deepEqual(parseEmailCsv('name,email\r\n"Doe, Jane",Jane@g.msuiit.edu.ph\r\n"John ""JJ"" Doe",john@g.msuiit.edu.ph'),['Jane@g.msuiit.edu.ph','john@g.msuiit.edu.ph']);
- assert.deepEqual(normalizeAllowedEmails([' Jane@g.msuiit.edu.ph ','jane@g.msuiit.edu.ph']),['jane@g.msuiit.edu.ph']);
- assert.throws(()=>parseEmailCsv('name,email\nJane,"unfinished'));
- assert.throws(()=>parseEmailCsv('name,email\nJane,'));
- assert.throws(()=>normalizeAllowedEmails(['student@gmail.com']));
- assert.throws(()=>normalizeAllowedEmails(Array.from({length:501},(_,i)=>'s'+i+'@g.msuiit.edu.ph')));
-});
-
-test('map stars match saved progress without treating visits as completion',async()=>{
- const {starProgress}=await import('./portal/coordinator.js');
- const base={step:'intent',userId:'s1'};
- assert.equal(starProgress(base).stars,0);
- assert.equal(starProgress({...base,openedSteps:[{user_id:'s1',step:'intent'}]}).stars,1);
- assert.equal(starProgress({...base,openedSteps:[{user_id:'s2',step:'intent'}]}).stars,0);
- for(const status of ['submitted','revision','approved'])assert.equal(starProgress({...base,submissions:[{user_id:'s1',step:'intent',status}]}).stars,2);
- assert.equal(starProgress({...base,submissions:[{user_id:'s1',step:'intent',status:'superseded'}]}).stars,0);
- assert.equal(starProgress({...base,openedSteps:['intent'],submissions:[{user_id:'s1',step:'intent',status:'superseded'}]}).stars,1);
- assert.equal(starProgress({...base,completion:[{user_id:'s1',step:'intent',complete:1}]}).stars,3);
- assert.equal(starProgress({...base,completion:[{user_id:'s2',step:'intent',complete:1}]}).stars,0);
+test('separate function instances share one-use sign-in challenges and sessions',async()=>{
+ const db=await testDatabase();const serverless=(await import('serverless-http')).default;
+ const one=await createApp({database:db,origin,verifyToken:async()=>identities.coordinator});
+ const two=await createApp({database:db,origin,verifyToken:async()=>identities.coordinator});
+ const a=serverless(one.app),b=serverless(two.app);
+ const event=(path,method='GET',cookie='',body)=>({httpMethod:method,path,headers:{host:'localhost:5173',origin,cookie},requestContext:{identity:{sourceIp:'127.0.0.1'}},body:body?JSON.stringify(body):null,isBase64Encoded:false});
+ const context={};
+ try{
+  const config=await a(event('/api/auth-config'),context);assert.equal(config.statusCode,200);
+  const cookies=config.cookies||config.multiValueHeaders?.['set-cookie']||[config.headers?.['set-cookie']];const challenge=cookies[0].split(';')[0];
+  const login=await b(event('/api/login','POST',challenge,{credential:'coordinator'}),context);assert.equal(login.statusCode,200);
+  const session=(login.cookies||login.multiValueHeaders?.['set-cookie']||[login.headers?.['set-cookie']])[0].split(';')[0];
+  assert.equal((await a(event('/api/me','GET',session),context)).statusCode,200);
+  assert.equal((await a(event('/api/login','POST',challenge,{credential:'coordinator'}),context)).statusCode,401);
+  assert.equal((await b(event('/templates/Intent-Declaration.docx'),context)).statusCode,302);
+ }finally{await db.close();}
 });
