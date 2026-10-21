@@ -70,27 +70,31 @@ export async function createApp({origin='http://localhost:5173',verifyToken,data
  function setCookie(name,value,age){return `${name}=${value}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${age}${origin.startsWith('https:')?'; Secure':''}`;}
 
  function send(res,status,body){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify(body));}
- async function body(req){let s='';for await(const chunk of req){s+=chunk;if(s.length>150000)throw Error('Request too large');}return JSON.parse(s||'{}');}
+ async function body(req){let s='';for await(const chunk of req){s+=chunk;if(s.length>150000)throw Error('Request too large');}if((req.headers['content-type']||'').split(';')[0]==='application/x-www-form-urlencoded'){const pairs=new URLSearchParams(s);for(const key of ['credential','g_csrf_token'])if(pairs.getAll(key).length>1)throw Error('Duplicate sign-in field');return Object.fromEntries(pairs);}return JSON.parse(s||'{}');}
  const handle=async(req,res)=>{try{
   res.setHeader('Cache-Control','no-store');res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','same-origin');res.setHeader('Cross-Origin-Opener-Policy','same-origin-allow-popups');
-  res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self' https://accounts.google.com/gsi/; frame-src https://accounts.google.com; connect-src 'self' https://accounts.google.com; style-src 'self' https://accounts.google.com; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+  res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self' https://accounts.google.com/gsi/; frame-src https://accounts.google.com; connect-src 'self' https://accounts.google.com; style-src 'self' https://accounts.google.com; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self' https://accounts.google.com");
   const url=new URL(req.url,origin);const pathname=url.pathname;
   if(!['GET','POST'].includes(req.method))return send(res,405,{error:'Method not allowed'});
-  if(req.method==='POST'&&req.headers.origin!==origin)return send(res,403,{error:'Invalid origin'});
+  const redirectLogin=pathname==='/api/login/redirect'&&req.method==='POST';
+  if(req.method==='POST'&&!redirectLogin&&req.headers.origin!==origin)return send(res,403,{error:'Invalid origin'});
   if(pathname==='/api/auth-config'&&req.method==='GET'){
    await db.prepare('DELETE FROM auth_challenges WHERE expires<?').run(Date.now());
    if(!await limit('config:'+req.clientIp))return send(res,429,{error:'Please wait a minute before trying again.'});
-   const key=random(),nonce=random();await db.prepare('INSERT INTO auth_challenges(token,nonce,expires) VALUES(?,?,?)').run(hash(key),nonce,Date.now()+600000);res.setHeader('Set-Cookie',setCookie('challenge',key,600));return send(res,200,{clientId:CLIENT,nonce});
+   const key=random(),nonce=random();await db.prepare('INSERT INTO auth_challenges(token,nonce,expires) VALUES(?,?,?)').run(hash(key),nonce,Date.now()+600000);res.setHeader('Set-Cookie',setCookie('challenge',key,600).replace('SameSite=Lax',origin.startsWith('https:')?'SameSite=None':'SameSite=Lax'));return send(res,200,{clientId:CLIENT,nonce,loginUri:origin+'/api/login/redirect'});
   }
-  if(pathname==='/api/login'&&req.method==='POST'){
-   if(!await limit('login:'+req.clientIp))return send(res,429,{error:'Please wait a minute before trying again.'});
-   const challengeKey=hash(cookie(req,'challenge')||'');const ch=await db.prepare('DELETE FROM auth_challenges WHERE token=? RETURNING nonce,expires').get(challengeKey);if(!ch||ch.expires<Date.now())return send(res,401,{error:'Refresh the page to start sign-in again.'});
-   const b=await body(req);let p;try{p=await verify(b.credential,ch.nonce);}catch{return send(res,401,{error:'Google sign-in could not be verified. Please refresh and retry.'});}
-   if(!validIdentity(p))return send(res,403,{error:'Use your verified @g.msuiit.edu.ph Google account.'});
+  if((pathname==='/api/login'||redirectLogin)&&req.method==='POST'){
+   const fail=(status,message)=>{if(!redirectLogin)return send(res,status,{error:message});res.writeHead(303,{Location:'/login?error='+encodeURIComponent(message)});res.end();};
+   const b=await body(req);
+   if(redirectLogin){const a=cookie(req,'g_csrf_token');const c=b.g_csrf_token;if(typeof a!=='string'||typeof c!=='string'||!a||a.length>1024||a.length!==c.length||!timingSafeEqual(Buffer.from(a),Buffer.from(c)))return fail(403,'Sign-in security check failed. Please try again.');}
+   if(!await limit('login:'+req.clientIp))return fail(429,'Please wait a minute before trying again.');
+   const challengeKey=hash(cookie(req,'challenge')||'');const ch=await db.prepare('DELETE FROM auth_challenges WHERE token=? RETURNING nonce,expires').get(challengeKey);if(!ch||ch.expires<Date.now())return fail(401,'Refresh the page to start sign-in again.');
+   let p;try{p=await verify(b.credential,ch.nonce);}catch{return fail(401,'Google sign-in could not be verified. Please refresh and retry.');}
+   if(!validIdentity(p))return fail(403,'Use your verified @g.msuiit.edu.ph Google account.');
    const email=p.email.toLowerCase();
-   if(email!==COORDINATOR&&!(await db.prepare('SELECT 1 FROM allowed_students WHERE email=? AND active=1').get(email)))return send(res,403,{error:'Your school email has not been approved for portal access. Contact the coordinator.'});
+   if(email!==COORDINATOR&&!(await db.prepare('SELECT 1 FROM allowed_students WHERE email=? AND active=1').get(email)))return fail(403,'Your school email has not been approved for portal access. Contact the coordinator.');
    (await db.prepare('INSERT INTO users(id,email,name) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET email=excluded.email').run(p.sub,email,p.name||email));
-   const token=random(),csrf=random();(await db.prepare('DELETE FROM sessions WHERE expires<?').run(Date.now()));(await db.prepare('INSERT INTO sessions VALUES(?,?,?,?)').run(hash(token),p.sub,csrf,Date.now()+28800000));res.setHeader('Set-Cookie',[setCookie('session',token,28800),setCookie('challenge','',0)]);return send(res,200,{ok:true});
+   const token=random(),csrf=random();(await db.prepare('DELETE FROM sessions WHERE expires<?').run(Date.now()));(await db.prepare('INSERT INTO sessions VALUES(?,?,?,?)').run(hash(token),p.sub,csrf,Date.now()+28800000));res.setHeader('Set-Cookie',[setCookie('session',token,28800),setCookie('challenge','',0)]);if(redirectLogin){res.writeHead(303,{Location:'/'});return res.end();}return send(res,200,{ok:true});
   }
   let session=(await db.prepare('SELECT s.*,u.email,u.name,u.student_number FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND s.expires>?').get(hash(cookie(req,'session')||''),Date.now()));
   if(session&&session.email!==COORDINATOR&&!(await db.prepare('SELECT 1 FROM allowed_students WHERE email=? AND active=1').get(session.email))){

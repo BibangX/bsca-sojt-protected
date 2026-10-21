@@ -57,3 +57,8 @@ Delete the old `netlify/functions/portal.mjs` from GitHub. This version uses `ne
 Students begin with Level 1. Later levels unlock only when all earlier levels have three stars (coordinator-confirmed completion). Opening a level or submitting a file alone does not unlock the next one. Existing records are preserved.
 
 For a student's early-access request, select their record in the coordinator desk and enable early access. This lifts the level restriction for that student, allowing them to open later levels and download their templates. It does not award stars or approve documents. The coordinator can revoke the exception at any time. Changes are saved per student and recorded in the audit log. Students contact the coordinator to request permission; the portal does not send a request automatically.
+
+## Same-tab Google sign-in update
+Before uploading this update, add this exact Authorized redirect URI to the existing Google OAuth Web client:
+https://bsca-sojt-portal-protected.netlify.app/api/login/redirect
+Keep the existing Authorized JavaScript origin. No client secret is required. The callback is based on APP_ORIGIN, so add the equivalent callback when moving hosts. Google posts the signed credential back to the same browser tab; the server validates double-submit CSRF, the one-use challenge nonce, school identity and enrollment allowlist before creating a session. Actual Google/mobile login must be tested after deployment.
